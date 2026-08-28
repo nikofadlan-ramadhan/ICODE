@@ -171,7 +171,7 @@ inset 0 -8px 12px rgba(70,40,160,.22);
 
 /* ---------------- panel ---------------- */
 
-#tab-decode,#tab-conv,#tab-time{
+#tab-decode,#tab-wmble,#tab-conv,#tab-time{
 background:rgba(255,255,255,.72);
 backdrop-filter:blur(14px);
 -webkit-backdrop-filter:blur(14px);
@@ -307,7 +307,7 @@ tr:last-child td{
 border-bottom:none;
 }
 
-#result tr:hover{
+#result tr:hover,#wmResult tr:hover{
 background:#faf8ff;
 }
 
@@ -502,7 +502,7 @@ animation:dropIn .5s ease both,shimmer 8s linear infinite;
 animation:dropIn .5s .05s ease both;
 }
 
-#tab-decode,#tab-conv,#tab-time{
+#tab-decode,#tab-wmble,#tab-conv,#tab-time{
 animation:panelIn .4s ease both;
 }
 
@@ -536,7 +536,7 @@ transition:transform .22s ease,box-shadow .25s ease;
 .cards .card:nth-child(11){animation-delay:0.500s;}
 .cards .card:nth-child(12){animation-delay:0.550s;}
 
-#result tr{
+#result tr,#wmResult tr{
 animation:fadeIn .4s ease both;
 }
 
@@ -1090,6 +1090,7 @@ animation:mist 3.4s ease-in-out infinite reverse;
 
 <div class="tabs">
 <button id="btn-decode" class="tab active" onclick="showTab('decode')">Decode Frame</button>
+<button id="btn-wmble" class="tab" onclick="showTab('wmble')">WM BLE</button>
 <button id="btn-conv" class="tab" onclick="showTab('conv')">Konverter Bilangan</button>
 <button id="btn-time" class="tab" onclick="showTab('time')">Waktu &amp; Epoch</button>
 </div>
@@ -1103,6 +1104,26 @@ animation:mist 3.4s ease-in-out infinite reverse;
 <button onclick="parse()">Decode</button>
 
 <table id="result">
+
+<tr>
+<th>Field</th>
+<th>Hex</th>
+<th>Value</th>
+</tr>
+
+</table>
+
+</div>
+
+<div id="tab-wmble" style="display:none">
+
+<textarea id="wmHexInput" placeholder="Tempel payload SWM-02, contoh: FE FE FE 68 10 ... 16"></textarea>
+
+<br>
+
+<button onclick="decodeWM()">Decode WM BLE</button>
+
+<table id="wmResult">
 
 <tr>
 <th>Field</th>
@@ -1433,6 +1454,352 @@ let hex=bytes.join("");
 
 row(label,hex,hexToInt(hex)+
 (hex.toLowerCase()==="ffffffff"?" (broadcast / all controllers)":""));
+
+}
+
+/* ============================================================
+   SWM-02 WATER METER (WM BLE)
+   Frame: [FE ...] 68 T A0..A5 A6 V C L DATA CS 16
+   ============================================================ */
+
+function wmClearTable(){
+
+document.getElementById("wmResult").innerHTML=
+"<tr><th>Field</th><th>Hex</th><th>Value</th></tr>";
+
+}
+
+function wmRow(name,hex,val,cls=""){
+
+let r=document.getElementById("wmResult").insertRow();
+
+r.style.animation="fadeIn .25s ease";
+r.insertCell(0).innerText=name;
+r.insertCell(1).innerText=hex===""?"":"0x"+hex.toUpperCase();
+
+let v=r.insertCell(2);
+v.innerText=val;
+
+if(cls)v.className=cls;
+
+}
+
+function wmLeNumber(bytes,signed=false){
+
+let value=0;
+
+for(let i=0;i<bytes.length;i++)
+value+=parseInt(bytes[i],16)*Math.pow(256,i);
+
+if(signed&&bytes.length>0){
+let limit=Math.pow(2,bytes.length*8);
+if(value>=limit/2)value-=limit;
+}
+
+return value;
+
+}
+
+function wmScaled(value,decimals){
+
+let negative=value<0;
+let digits=Math.abs(value).toString().padStart(decimals+1,"0");
+
+if(decimals>0)
+digits=digits.slice(0,-decimals)+"."+digits.slice(-decimals);
+
+return (negative?"-":"")+digits;
+
+}
+
+function wmUnit(code){
+
+const units={
+"26":{unit:"m³",decimals:8},
+"27":{unit:"m³",decimals:7},
+"28":{unit:"m³",decimals:6},
+"29":{unit:"m³",decimals:5},
+"2a":{unit:"m³",decimals:4},
+"2b":{unit:"m³",decimals:3},
+"2c":{unit:"m³",decimals:2},
+"34":{unit:"L/h",decimals:2},
+"35":{unit:"m³/h",decimals:2},
+"36":{unit:"m³/h",decimals:1},
+"37":{unit:"m³/h",decimals:0},
+"44":{unit:"L/h",decimals:2,negative:true},
+"45":{unit:"m³/h",decimals:2,negative:true},
+"46":{unit:"m³/h",decimals:1,negative:true},
+"47":{unit:"m³/h",decimals:0,negative:true}
+};
+
+return units[code.toLowerCase()]||null;
+
+}
+
+function wmMeasurement(name,bytes){
+
+if(bytes.length<2){
+wmRow(name,bytes.join(""),"Data tidak lengkap","err");
+return;
+}
+
+let code=bytes[bytes.length-1];
+let raw=wmLeNumber(bytes.slice(0,-1));
+let unit=wmUnit(code);
+
+if(!unit){
+wmRow(name,bytes.join(""),"Raw "+raw+", unit code 0x"+code.toUpperCase(),"info");
+return;
+}
+
+if(unit.negative)raw=-raw;
+
+wmRow(name,bytes.join(""),wmScaled(raw,unit.decimals)+" "+unit.unit+
+" (raw "+Math.abs(raw)+", unit 0x"+code.toUpperCase()+")");
+
+}
+
+function wmDateTime(bytes){
+
+if(bytes.length<7)return "Data waktu tidak lengkap";
+
+let second=parseInt(bytes[0],16);
+let minute=parseInt(bytes[1],16);
+let hour=parseInt(bytes[2],16);
+let day=parseInt(bytes[3],16);
+let month=parseInt(bytes[4],16);
+let year=parseInt(bytes[5],16)+(parseInt(bytes[6],16)*256);
+let pad=n=>n.toString().padStart(2,"0");
+let valid=second<60&&minute<60&&hour<24&&day>=1&&day<=31&&month>=1&&month<=12;
+
+return year+"-"+pad(month)+"-"+pad(day)+" "+pad(hour)+":"+pad(minute)+":"+pad(second)+
+(valid?"":" (nilai tanggal di luar rentang)");
+
+}
+
+function wmStatus(bytes){
+
+if(bytes.length<4){
+wmRow("Status ST",bytes.join(""),"Status tidak lengkap","err");
+return;
+}
+
+let s1=parseInt(bytes[0],16);
+let s2=parseInt(bytes[1],16);
+let s3=parseInt(bytes[2],16);
+let s4=parseInt(bytes[3],16);
+let first=[s1&1?"Valve closed":"Valve open"];
+let firstFlags=[
+"Battery voltage low","Inductive sensor abnormal","Backup battery voltage low",
+"Tamper / cover removed","Valve opening","Valve closing","Metering module abnormal"
+];
+
+for(let i=1;i<8;i++)if(s1&(1<<i))first.push(firstFlags[i-1]);
+
+let secondFlags=[
+"Valve abnormal","GPRS battery low","Reverse-flow alarm","Sensor fault",
+"Valve leakage","Water pressure abnormal","Instantaneous flow abnormal","System reset"
+];
+let second=[];
+
+for(let i=0;i<8;i++)if(s2&(1<<i))second.push(secondFlags[i]);
+
+let thirdFlags={
+1:"Unit price error",2:"Previous magnetic interference",3:"Pipeline leakage",
+5:"Current magnetic interference",6:"Vendor flag D6",7:"Vendor flag D7"
+};
+let third=[];
+
+for(let i=0;i<8;i++)if((s3&(1<<i))&&thirdFlags[i])third.push(thirdFlags[i]);
+
+wmRow("Status ST byte 1",bytes[0],first.join("; "),s1&0xfe?"err":"ok");
+wmRow("Status ST byte 2",bytes[1],second.length?second.join("; "):"Normal",second.length?"err":"ok");
+wmRow("Status ST byte 3",bytes[2],third.length?third.join("; "):"Normal / reserved",third.length?"err":"ok");
+wmRow("Status ST byte 4",bytes[3],"Voltage raw value "+s4,"info");
+
+}
+
+function wmDecodeData(data,control){
+
+wmRow("Data field",data.join(""),data.length+" bytes");
+
+if(data.length<2)return;
+
+let id=(data[0]+data[1]).toLowerCase();
+let ids={"901e":"Read all meter data","a017":"Valve control","a026":"GPRS heartbeat"};
+
+wmRow("Data identification",id,ids[id]||"Unknown / vendor-defined",ids[id]?"":"info");
+
+if(id==="901e"){
+if(data.length===2){
+wmRow("Request","","Read all meter data");
+return;
+}
+
+if(data.length<32){
+wmRow("Meter data","","Expected 32 data bytes, received "+data.length,"err");
+return;
+}
+
+wmMeasurement("Current forward flow",data.slice(2,7));
+wmMeasurement("Reverse flow",data.slice(7,12));
+
+let remaining=wmLeNumber(data.slice(12,16),true);
+wmRow("Remaining amount",data.slice(12,16).join(""),wmScaled(remaining,2)+" (currency follows device configuration)");
+
+wmMeasurement("Instantaneous flow",data.slice(16,20));
+wmRow("Real-time",data.slice(20,27).join(""),wmDateTime(data.slice(20,27)));
+wmStatus(data.slice(27,31));
+wmRow("Next purchase serial number",data[31],parseInt(data[31],16).toString());
+return;
+}
+
+if(id==="a017"){
+if(data.length<3){
+wmRow("Valve command","","Valve type byte missing","err");
+return;
+}
+
+let type=data[2].toLowerCase();
+let valve=type==="55"?"Open valve":type==="99"?"Close valve":"Unknown command";
+
+wmRow("Valve command",data[2],valve,type==="55"||type==="99"?"":"info");
+
+if(data.length>=7)wmStatus(data.slice(3,7));
+return;
+}
+
+if(id==="a026"){
+if(data.length>=9){
+wmRow("Heartbeat time",data.slice(2,9).join(""),wmDateTime(data.slice(2,9)));
+}else if(data.length>=4){
+wmRow("GPRS code",data.slice(2,4).join(""),data.slice(2,4).join(""));
+}else{
+wmRow("Heartbeat data","","Data heartbeat tidak lengkap","err");
+}
+return;
+}
+
+if(control&0x40)
+wmRow("Communication status","","Slave reports abnormal data or frame format","err");
+
+}
+
+function decodeWM(){
+
+let table=document.getElementById("wmResult");
+
+table.style.opacity="0";
+setTimeout(()=>{table.style.opacity="1";},50);
+
+let raw=document.getElementById("wmHexInput").value
+.replace(/0x/gi,"")
+.replace(/[^0-9a-fA-F]/g,"")
+.toLowerCase();
+
+if(raw.length===0||raw.length%2!==0){
+alert("Payload WM BLE bukan HEX yang valid");
+return;
+}
+
+let bytes=raw.match(/.{2}/g);
+let sof=bytes.indexOf("68");
+
+wmClearTable();
+
+if(sof<0){
+wmRow("SOF","","Byte awal 0x68 tidak ditemukan","err");
+return;
+}
+
+let preamble=bytes.slice(0,sof);
+let core=bytes.slice(sof);
+
+if(preamble.length){
+let validPreamble=preamble.every(b=>b==="fe");
+wmRow("Wake-up preamble",preamble.join(""),preamble.length+" byte FE",validPreamble?"ok":"err");
+}
+
+wmRow("SOF",core[0],core[0]==="68"?"Frame start":"Invalid SOF",core[0]==="68"?"ok":"err");
+
+if(core.length<14){
+wmRow("Frame","",core.length+" bytes; minimum 14 bytes","err");
+return;
+}
+
+let meterTypes={
+"10":"Cold water meter","11":"Hot water meter","12":"Direct drinking water meter",
+"13":"Reclaimed water meter","15":"Identified water meter","20":"Heat meter (calorimeter)",
+"21":"Heat meter (cooling capacity)","30":"Gas meter","40":"Other meter"
+};
+let meterType=core[1];
+
+wmRow("Meter type",meterType,meterTypes[meterType]||"Unknown meter type","info");
+
+let address=core.slice(2,8);
+let addressHex=address.join("");
+let broadcast=address.every(b=>b==="aa");
+let serialBytes=address.slice(0,5).filter(b=>b!=="aa").reverse();
+let serial=serialBytes.join("").toUpperCase();
+let validBcd=serialBytes.every(b=>/^[0-9]{2}$/.test(b));
+
+wmRow("Address A0-A5",addressHex,broadcast?"Broadcast address":
+"S/N "+(validBcd&&serial?serial:"invalid BCD")+", vendor 0x"+address[5].toUpperCase(),broadcast?"info":"");
+
+let addressSum=address.reduce((sum,b)=>(sum+parseInt(b,16))&0xff,0);
+let addressCheck=parseInt(core[8],16);
+let addressExpected=addressSum.toString(16).padStart(2,"0");
+let addressOk=addressCheck===addressSum;
+let broadcastConvention=broadcast&&core[8]==="aa";
+
+wmRow("Address check A6",core[8],"Calc 0x"+addressExpected.toUpperCase()+
+(addressOk?" = OK":broadcastConvention?"; 0xAA broadcast convention":" = ERROR"),
+addressOk?"ok":broadcastConvention?"info":"err");
+
+wmRow("Version",core[9],parseInt(core[9],16).toString());
+
+let control=parseInt(core[10],16);
+let functionCode=control&0x3f;
+let functions={0:"Reserved",1:"Read data",3:"Read address",4:"Write data",21:"Write address",22:"Write meter reading"};
+let direction=(control&0x80)?"Slave reply":"Master command";
+let communication=(control&0x40)?"abnormal":"normal";
+
+wmRow("Control code",core[10],direction+"; "+communication+"; "+
+(functions[functionCode]||"Vendor function 0x"+functionCode.toString(16).padStart(2,"0").toUpperCase()),
+communication==="normal"?"":"err");
+
+let declared=parseInt(core[11],16);
+let expectedLength=14+declared;
+
+wmRow("Data length",core[11],declared+" bytes");
+wmRow("Frame length","",core.length+" bytes"+
+(core.length===expectedLength?" = OK":"; expected "+expectedLength),core.length===expectedLength?"ok":"err");
+
+let dataEnd=Math.min(12+declared,core.length);
+let data=core.slice(12,dataEnd);
+
+wmDecodeData(data,control);
+
+let checksumIndex=12+declared;
+
+if(checksumIndex<core.length){
+let checksum=core[checksumIndex];
+let checksumCalc=core.slice(0,checksumIndex)
+.reduce((sum,b)=>(sum+parseInt(b,16))&0xff,0)
+.toString(16).padStart(2,"0");
+let checksumOk=checksum===checksumCalc;
+
+wmRow("Checksum CS",checksum,"Calc 0x"+checksumCalc.toUpperCase()+" = "+(checksumOk?"OK":"ERROR"),checksumOk?"ok":"err");
+}else{
+wmRow("Checksum CS","","Missing checksum","err");
+}
+
+let end=core[checksumIndex+1];
+
+wmRow("End character",end||"",end==="16"?"Frame end":"Expected 0x16",end==="16"?"ok":"err");
+
+if(core.length>expectedLength)
+wmRow("Trailing bytes",core.slice(expectedLength).join(""),(core.length-expectedLength)+" extra bytes","info");
 
 }
 
@@ -2696,10 +3063,12 @@ el.classList.add("flash");
 function showTab(t){
 
 document.getElementById("tab-decode").style.display=(t==="decode")?"block":"none";
+document.getElementById("tab-wmble").style.display=(t==="wmble")?"block":"none";
 document.getElementById("tab-conv").style.display=(t==="conv")?"block":"none";
 document.getElementById("tab-time").style.display=(t==="time")?"block":"none";
 
 document.getElementById("btn-decode").className=(t==="decode")?"tab active":"tab";
+document.getElementById("btn-wmble").className=(t==="wmble")?"tab active":"tab";
 document.getElementById("btn-conv").className=(t==="conv")?"tab active":"tab";
 document.getElementById("btn-time").className=(t==="time")?"tab active":"tab";
 
@@ -2756,6 +3125,42 @@ let text=e.dataTransfer.getData("text");
 if(text){
 hexBox.value=text.replace(/\s/g,'');
 parse();
+}
+
+});
+
+const wmHexBox=document.getElementById("wmHexInput");
+
+wmHexBox.addEventListener("focus",()=>{
+if(wmHexBox.value.length>0)
+wmHexBox.select();
+});
+
+wmHexBox.addEventListener("paste",e=>{
+e.preventDefault();
+let text=(e.clipboardData||window.clipboardData).getData("text");
+wmHexBox.value=text;
+decodeWM();
+});
+
+wmHexBox.addEventListener("dragover",e=>{
+e.preventDefault();
+wmHexBox.classList.add("drag");
+});
+
+wmHexBox.addEventListener("dragleave",()=>{
+wmHexBox.classList.remove("drag");
+});
+
+wmHexBox.addEventListener("drop",e=>{
+e.preventDefault();
+wmHexBox.classList.remove("drag");
+
+let text=e.dataTransfer.getData("text");
+
+if(text){
+wmHexBox.value=text;
+decodeWM();
 }
 
 });
