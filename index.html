@@ -277,6 +277,7 @@ table{
 border-collapse:separate;
 border-spacing:0;
 width:100%;
+table-layout:fixed;
 margin-top:24px;
 background:var(--surface);
 border-radius:26px;
@@ -300,7 +301,21 @@ font-family:"JetBrains Mono",monospace;
 font-size:14px;
 padding:11px 16px;
 border-bottom:1px solid var(--line);
+vertical-align:top;
+overflow-wrap:break-word;
+word-break:normal;
+}
+
+th:nth-child(1),td:nth-child(1){
+width:160px;
+}
+
+th:nth-child(2),td:nth-child(2){
 word-break:break-all;
+}
+
+th:nth-child(3),td:nth-child(3){
+width:220px;
 }
 
 tr:last-child td{
@@ -1555,7 +1570,63 @@ return;
 if(unit.negative)raw=-raw;
 
 wmRow(name,bytes.join(""),wmScaled(raw,unit.decimals)+" "+unit.unit+
-" (raw "+Math.abs(raw)+", unit 0x"+code.toUpperCase()+")");
+" (raw unsigned "+Math.abs(raw)+", unit 0x"+code.toUpperCase()+
+(unit.negative?", negative unit code":"")+")");
+
+}
+
+function wmBits(value){
+
+return value.toString(2).padStart(8,"0");
+
+}
+
+function wmByteChecksum(bytes){
+
+return bytes.reduce((sum,b)=>(sum+parseInt(b,16))&0xff,0);
+
+}
+
+function wmSigned8(hex){
+
+let v=parseInt(hex,16);
+
+return v>127?v-256:v;
+
+}
+
+function wmUnitScaleText(code){
+
+let unit=wmUnit(code);
+
+if(!unit)return "Unknown unit code 0x"+code.toUpperCase();
+
+let scale=unit.decimals>0?"0."+("0".repeat(unit.decimals-1))+"1":"1";
+
+return scale+" "+unit.unit+(unit.negative?" (negative unit code)":"");
+
+}
+
+function wmFormatByUnit(bytes,code){
+
+let raw=wmLeNumber(bytes);
+let unit=wmUnit(code);
+
+if(!unit)
+return "Raw unsigned "+raw+", unit code 0x"+code.toUpperCase();
+
+if(unit.negative)raw=-raw;
+
+return wmScaled(raw,unit.decimals)+" "+unit.unit+
+" (raw unsigned "+Math.abs(raw)+", scale "+wmUnitScaleText(code)+")";
+
+}
+
+function wmBatteryVoltage(hex){
+
+let raw=parseInt(hex,16);
+
+return (raw/10).toFixed(1)+" V (raw unsigned "+raw+")";
 
 }
 
@@ -1588,47 +1659,123 @@ let s1=parseInt(bytes[0],16);
 let s2=parseInt(bytes[1],16);
 let s3=parseInt(bytes[2],16);
 let s4=parseInt(bytes[3],16);
-let first=[s1&1?"Valve closed":"Valve open"];
+let first=["D0 Valve status: "+(s1&1?"closed":"open")];
 let firstFlags=[
-"Battery voltage low","Inductive sensor abnormal","Backup battery voltage low",
-"Tamper / cover removed","Valve opening","Valve closing","Metering module abnormal"
+"D1 Battery voltage low","D2 Inductive sensor abnormal","D3 Backup battery voltage low",
+"D4 Tamper / cover removed","D5 During valve opening","D6 During valve closing","D7 Metering module abnormal"
 ];
 
 for(let i=1;i<8;i++)if(s1&(1<<i))first.push(firstFlags[i-1]);
 
 let secondFlags=[
-"Valve abnormal","GPRS battery low","Reverse-flow alarm","Sensor fault",
-"Valve leakage","Water pressure abnormal","Instantaneous flow abnormal","System reset"
+"D0 Valve abnormal","D1 GPRS battery low","D2 Reverse-flow alarm","D3 Sensor fault",
+"D4 Valve leakage","D5 Water pressure abnormal","D6 Instantaneous flow abnormal","D7 System reset"
 ];
 let second=[];
 
 for(let i=0;i<8;i++)if(s2&(1<<i))second.push(secondFlags[i]);
 
 let thirdFlags={
-1:"Unit price error",2:"Previous magnetic interference",3:"Pipeline leakage",
-5:"Current magnetic interference",6:"Vendor flag D6",7:"Vendor flag D7"
+1:"D1 Unit price error",2:"D2 Previous magnetic interference",3:"D3 Pipeline leakage",
+5:"D5 Current magnetic interference",6:"D6 Vendor flag",7:"D7 Vendor flag"
 };
 let third=[];
 
 for(let i=0;i<8;i++)if((s3&(1<<i))&&thirdFlags[i])third.push(thirdFlags[i]);
 
-wmRow("Status ST byte 1",bytes[0],first.join("; "),s1&0xfe?"err":"ok");
-wmRow("Status ST byte 2",bytes[1],second.length?second.join("; "):"Normal",second.length?"err":"ok");
-wmRow("Status ST byte 3",bytes[2],third.length?third.join("; "):"Normal / reserved",third.length?"err":"ok");
-wmRow("Status ST byte 4",bytes[3],"Voltage raw value "+s4,"info");
+wmRow("Status ST byte 1",bytes[0],"bits "+wmBits(s1)+"; "+first.join("; "),s1&0xfe?"err":"ok");
+wmRow("Status ST byte 2",bytes[1],"bits "+wmBits(s2)+"; "+(second.length?second.join("; "):"Normal"),second.length?"err":"ok");
+wmRow("Status ST byte 3",bytes[2],"bits "+wmBits(s3)+"; "+(third.length?third.join("; "):"Normal / reserved"),third.length?"err":"ok");
+wmRow("Status ST byte 4",bytes[3],wmBatteryVoltage(bytes[3]),"info");
+
+}
+
+function wmDecode905F(data){
+
+if(data.length<150){
+wmRow("NB-IoT meter data","","Expected 150 data bytes for 0x905F, received "+data.length,"err");
+return;
+}
+
+let forwardUnit=data[2];
+let reverseUnit=data[3];
+let instantUnit=data[4];
+
+wmRow("Forward flow unit",forwardUnit,wmUnitScaleText(forwardUnit));
+wmRow("Reverse flow unit",reverseUnit,wmUnitScaleText(reverseUnit));
+wmRow("Instantaneous flow unit",instantUnit,wmUnitScaleText(instantUnit));
+wmRow("Spare",data[5],"Reserved");
+
+wmRow("Current forward flow",data.slice(6,10).join(""),wmFormatByUnit(data.slice(6,10),forwardUnit));
+
+let remaining=wmLeNumber(data.slice(10,14),true);
+wmRow("Current remaining amount",data.slice(10,14).join(""),wmScaled(remaining,2)+" (raw signed two's complement)");
+
+wmStatus(data.slice(14,18));
+
+wmRow("Recharge ID",data[18],parseInt(data[18],16).toString());
+wmRow("Reverse flow",data.slice(19,23).join(""),wmFormatByUnit(data.slice(19,23),reverseUnit));
+wmRow("Current instantaneous flow",data.slice(23,27).join(""),wmFormatByUnit(data.slice(23,27),instantUnit));
+wmRow("Current water pressure",data[27],parseInt(data[27],16).toString()+" raw");
+
+let hourlyStart=28;
+
+for(let h=0;h<24;h++){
+
+let idx=hourlyStart+(h*5);
+let flow=data.slice(idx,idx+4);
+let checksum=data[idx+4];
+let calc=wmByteChecksum(flow).toString(16).padStart(2,"0");
+let ok=checksum===calc;
+
+wmRow("Hourly flow "+h.toString().padStart(2,"0")+":00",
+data.slice(idx,idx+5).join(""),
+wmFormatByUnit(flow,forwardUnit)+"; checksum 0x"+calc.toUpperCase()+" "+(ok?"OK":"ERROR"),
+ok?"ok":"err");
+
+}
+
+wmRow("Signal intensity",data[148],"raw "+parseInt(data[148],16)+", signed "+wmSigned8(data[148]));
+wmRow("Signal to noise ratio",data[149],"raw "+parseInt(data[149],16)+", signed "+wmSigned8(data[149]));
+
+if(data.length>150)
+wmRow("Extra data",data.slice(150).join(""),(data.length-150)+" extra bytes","info");
 
 }
 
 function wmDecodeData(data,control){
 
-wmRow("Data field",data.join(""),data.length+" bytes");
-
-if(data.length<2)return;
+if(data.length<2){
+wmRow("Data field",data.join(""),data.length+" bytes; data terlalu pendek untuk membaca ID","err");
+return;
+}
 
 let id=(data[0]+data[1]).toLowerCase();
-let ids={"901e":"Read all meter data","a017":"Valve control","a026":"GPRS heartbeat"};
+
+let ids={
+"901e":"Read all meter data",
+"905f":"NB-IoT GURTAM meter data",
+"a017":"Valve control",
+"a026":"GPRS heartbeat"
+};
+
+let layouts={
+"901e":data.length===2?
+"2 bytes; request baca semua data meter":
+data.length+" bytes; DI(2) + forward flow unsigned(5) + reverse flow unsigned(5) + remaining amount signed(4) + instantaneous flow unsigned(4) + real-time(7) + status ST bit flags(4) + next purchase serial(1)",
+"905f":data.length+" bytes; DI(2) + unit bytes(3) + spare(1) + current data(22) + 24 hourly flow records(120) + signal(1) + SNR(1)",
+"a017":data.length+" bytes; DI(2) + valve command(1) + optional status ST(4)",
+"a026":data.length+" bytes; DI(2) + heartbeat time / GPRS data"
+};
+
+wmRow("Data field",data.join(""),layouts[id]||data.length+" bytes; raw vendor data, format belum ada di dokumen",ids[id]?"":"info");
 
 wmRow("Data identification",id,ids[id]||"Unknown / vendor-defined",ids[id]?"":"info");
+
+if(id==="905f"){
+wmDecode905F(data);
+return;
+}
 
 if(id==="901e"){
 if(data.length===2){
@@ -1645,7 +1792,7 @@ wmMeasurement("Current forward flow",data.slice(2,7));
 wmMeasurement("Reverse flow",data.slice(7,12));
 
 let remaining=wmLeNumber(data.slice(12,16),true);
-wmRow("Remaining amount",data.slice(12,16).join(""),wmScaled(remaining,2)+" (currency follows device configuration)");
+wmRow("Remaining amount",data.slice(12,16).join(""),wmScaled(remaining,2)+" (raw signed two's complement; currency follows device configuration)");
 
 wmMeasurement("Instantaneous flow",data.slice(16,20));
 wmRow("Real-time",data.slice(20,27).join(""),wmDateTime(data.slice(20,27)));
