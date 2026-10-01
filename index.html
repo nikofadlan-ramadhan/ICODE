@@ -1162,7 +1162,7 @@ td{border-bottom-color:rgba(110,148,220,.18);color:#c6d7f5;}
 <h2>ICODE Universal Converter</h2>
 
 <div class="tabs">
-<button id="btn-decode" class="tab active" onclick="showTab('decode')">LCU C</button>
+<button id="btn-decode" class="tab active" onclick="showTab('decode')">LCU</button>
 <button id="btn-wmble" class="tab" onclick="showTab('wmble')">WM BLE</button>
 <button id="btn-conv" class="tab" onclick="showTab('conv')">Konverter Bilangan</button>
 <button id="btn-time" class="tab" onclick="showTab('time')">Waktu &amp; Epoch</button>
@@ -1194,14 +1194,14 @@ td{border-bottom-color:rgba(110,148,220,.18);color:#c6d7f5;}
 
 <br>
 
-<button onclick="decodeWM()">Decode WM BLE</button>
+<button onclick="decodeWM()">Baca Data Meter</button>
 
 <table id="wmResult">
 
 <tr>
-<th>Field</th>
+<th>Bagian</th>
 <th>Hex</th>
-<th>Value</th>
+<th>Arti</th>
 </tr>
 
 </table>
@@ -1538,7 +1538,7 @@ row(label,hex,hexToInt(hex)+
 function wmClearTable(){
 
 document.getElementById("wmResult").innerHTML=
-"<tr><th>Field</th><th>Hex</th><th>Value</th></tr>";
+"<tr><th>Bagian</th><th>Hex</th><th>Arti</th></tr>";
 
 }
 
@@ -1612,7 +1612,7 @@ return units[code.toLowerCase()]||null;
 function wmMeasurement(name,bytes){
 
 if(bytes.length<2){
-wmRow(name,bytes.join(""),"Data tidak lengkap","err");
+wmRow(name,bytes.join(""),"Data kurang","err");
 return;
 }
 
@@ -1621,15 +1621,13 @@ let raw=wmLeNumber(bytes.slice(0,-1));
 let unit=wmUnit(code);
 
 if(!unit){
-wmRow(name,bytes.join(""),"Raw "+raw+", unit code 0x"+code.toUpperCase(),"info");
+wmRow(name,bytes.join(""),"Angka "+raw+" (satuan tidak dikenal)","info");
 return;
 }
 
 if(unit.negative)raw=-raw;
 
-wmRow(name,bytes.join(""),wmScaled(raw,unit.decimals)+" "+unit.unit+
-" (raw unsigned "+Math.abs(raw)+", unit 0x"+code.toUpperCase()+
-(unit.negative?", negative unit code":"")+")");
+wmRow(name,bytes.join(""),wmScaled(raw,unit.decimals)+" "+unit.unit);
 
 }
 
@@ -1657,11 +1655,11 @@ function wmUnitScaleText(code){
 
 let unit=wmUnit(code);
 
-if(!unit)return "Unknown unit code 0x"+code.toUpperCase();
+if(!unit)return "Satuan tidak dikenal (0x"+code.toUpperCase()+")";
 
 let scale=unit.decimals>0?"0."+("0".repeat(unit.decimals-1))+"1":"1";
 
-return scale+" "+unit.unit+(unit.negative?" (negative unit code)":"");
+return "per "+scale+" "+unit.unit+(unit.negative?" (nilai minus)":"");
 
 }
 
@@ -1671,12 +1669,11 @@ let raw=wmLeNumber(bytes);
 let unit=wmUnit(code);
 
 if(!unit)
-return "Raw unsigned "+raw+", unit code 0x"+code.toUpperCase();
+return "Angka "+raw+" (satuan tidak dikenal)";
 
 if(unit.negative)raw=-raw;
 
-return wmScaled(raw,unit.decimals)+" "+unit.unit+
-" (raw unsigned "+Math.abs(raw)+", scale "+wmUnitScaleText(code)+")";
+return wmScaled(raw,unit.decimals)+" "+unit.unit;
 
 }
 
@@ -1684,13 +1681,13 @@ function wmBatteryVoltage(hex){
 
 let raw=parseInt(hex,16);
 
-return (raw/10).toFixed(1)+" V (raw unsigned "+raw+")";
+return (raw/10).toFixed(1)+" V";
 
 }
 
 function wmDateTime(bytes){
 
-if(bytes.length<7)return "Data waktu tidak lengkap";
+if(bytes.length<7)return "Data waktu kurang";
 
 let second=parseInt(bytes[0],16);
 let minute=parseInt(bytes[1],16);
@@ -1702,14 +1699,14 @@ let pad=n=>n.toString().padStart(2,"0");
 let valid=second<60&&minute<60&&hour<24&&day>=1&&day<=31&&month>=1&&month<=12;
 
 return year+"-"+pad(month)+"-"+pad(day)+" "+pad(hour)+":"+pad(minute)+":"+pad(second)+
-(valid?"":" (nilai tanggal di luar rentang)");
+(valid?"":" (tanggal tidak valid)");
 
 }
 
 function wmStatus(bytes){
 
 if(bytes.length<4){
-wmRow("Status ST",bytes.join(""),"Status tidak lengkap","err");
+wmRow("Status",bytes.join(""),"Data status kurang","err");
 return;
 }
 
@@ -1717,41 +1714,41 @@ let s1=parseInt(bytes[0],16);
 let s2=parseInt(bytes[1],16);
 let s3=parseInt(bytes[2],16);
 let s4=parseInt(bytes[3],16);
-let first=["D0 Valve status: "+(s1&1?"closed":"open")];
+let first=["Katup "+(s1&1?"tertutup":"terbuka")];
 let firstFlags=[
-"D1 Battery voltage low","D2 Inductive sensor abnormal","D3 Backup battery voltage low",
-"D4 Tamper / cover removed","D5 During valve opening","D6 During valve closing","D7 Metering module abnormal"
+"Baterai lemah","Sensor bermasalah","Baterai cadangan lemah",
+"Tutup meter dibuka","Katup sedang membuka","Katup sedang menutup","Bagian pengukur bermasalah"
 ];
 
 for(let i=1;i<8;i++)if(s1&(1<<i))first.push(firstFlags[i-1]);
 
 let secondFlags=[
-"D0 Valve abnormal","D1 GPRS battery low","D2 Reverse-flow alarm","D3 Sensor fault",
-"D4 Valve leakage","D5 Water pressure abnormal","D6 Instantaneous flow abnormal","D7 System reset"
+"Katup bermasalah","Baterai modem lemah","Air mengalir balik","Sensor rusak",
+"Katup bocor","Tekanan air tidak normal","Aliran air tidak normal","Meter baru menyala ulang"
 ];
 let second=[];
 
 for(let i=0;i<8;i++)if(s2&(1<<i))second.push(secondFlags[i]);
 
 let thirdFlags={
-1:"D1 Unit price error",2:"D2 Previous magnetic interference",3:"D3 Pipeline leakage",
-5:"D5 Current magnetic interference",6:"D6 Vendor flag",7:"D7 Vendor flag"
+1:"Tarif salah",2:"Pernah ada gangguan magnet",3:"Pipa bocor",
+5:"Ada gangguan magnet",6:"Tanda dari pabrik",7:"Tanda dari pabrik"
 };
 let third=[];
 
 for(let i=0;i<8;i++)if((s3&(1<<i))&&thirdFlags[i])third.push(thirdFlags[i]);
 
-wmRow("Status ST byte 1",bytes[0],"bits "+wmBits(s1)+"; "+first.join("; "),s1&0xfe?"err":"ok");
-wmRow("Status ST byte 2",bytes[1],"bits "+wmBits(s2)+"; "+(second.length?second.join("; "):"Normal"),second.length?"err":"ok");
-wmRow("Status ST byte 3",bytes[2],"bits "+wmBits(s3)+"; "+(third.length?third.join("; "):"Normal / reserved"),third.length?"err":"ok");
-wmRow("Status ST byte 4",bytes[3],wmBatteryVoltage(bytes[3]),"info");
+wmRow("Status 1",bytes[0],first.join(", "),s1&0xfe?"err":"ok");
+wmRow("Status 2",bytes[1],second.length?second.join(", "):"Normal",second.length?"err":"ok");
+wmRow("Status 3",bytes[2],third.length?third.join(", "):"Normal",third.length?"err":"ok");
+wmRow("Tegangan baterai",bytes[3],wmBatteryVoltage(bytes[3]),"info");
 
 }
 
 function wmDecode905F(data){
 
 if(data.length<150){
-wmRow("NB-IoT meter data","","Expected 150 data bytes for 0x905F, received "+data.length,"err");
+wmRow("Data meter","","Data kurang: harusnya 150 byte, cuma ada "+data.length,"err");
 return;
 }
 
@@ -1759,22 +1756,22 @@ let forwardUnit=data[2];
 let reverseUnit=data[3];
 let instantUnit=data[4];
 
-wmRow("Forward flow unit",forwardUnit,wmUnitScaleText(forwardUnit));
-wmRow("Reverse flow unit",reverseUnit,wmUnitScaleText(reverseUnit));
-wmRow("Instantaneous flow unit",instantUnit,wmUnitScaleText(instantUnit));
-wmRow("Spare",data[5],"Reserved");
+wmRow("Satuan total air",forwardUnit,wmUnitScaleText(forwardUnit));
+wmRow("Satuan air balik",reverseUnit,wmUnitScaleText(reverseUnit));
+wmRow("Satuan aliran air",instantUnit,wmUnitScaleText(instantUnit));
+wmRow("Cadangan",data[5],"Tidak dipakai");
 
-wmRow("Current forward flow",data.slice(6,10).join(""),wmFormatByUnit(data.slice(6,10),forwardUnit));
+wmRow("Total pemakaian air",data.slice(6,10).join(""),wmFormatByUnit(data.slice(6,10),forwardUnit));
 
 let remaining=wmLeNumber(data.slice(10,14),true);
-wmRow("Current remaining amount",data.slice(10,14).join(""),wmScaled(remaining,2)+" (raw signed two's complement)");
+wmRow("Sisa saldo",data.slice(10,14).join(""),wmScaled(remaining,2));
 
 wmStatus(data.slice(14,18));
 
-wmRow("Recharge ID",data[18],parseInt(data[18],16).toString());
-wmRow("Reverse flow",data.slice(19,23).join(""),wmFormatByUnit(data.slice(19,23),reverseUnit));
-wmRow("Current instantaneous flow",data.slice(23,27).join(""),wmFormatByUnit(data.slice(23,27),instantUnit));
-wmRow("Current water pressure",data[27],parseInt(data[27],16).toString()+" raw");
+wmRow("No. isi ulang",data[18],parseInt(data[18],16).toString());
+wmRow("Air mengalir balik",data.slice(19,23).join(""),wmFormatByUnit(data.slice(19,23),reverseUnit));
+wmRow("Aliran air sekarang",data.slice(23,27).join(""),wmFormatByUnit(data.slice(23,27),instantUnit));
+wmRow("Tekanan air",data[27],parseInt(data[27],16).toString());
 
 let hourlyStart=28;
 
@@ -1786,49 +1783,49 @@ let checksum=data[idx+4];
 let calc=wmByteChecksum(flow).toString(16).padStart(2,"0");
 let ok=checksum===calc;
 
-wmRow("Hourly flow "+h.toString().padStart(2,"0")+":00",
+wmRow("Jam "+h.toString().padStart(2,"0")+":00",
 data.slice(idx,idx+5).join(""),
-wmFormatByUnit(flow,forwardUnit)+"; checksum 0x"+calc.toUpperCase()+" "+(ok?"OK":"ERROR"),
+wmFormatByUnit(flow,forwardUnit)+(ok?" (cek OK)":" (cek GAGAL)"),
 ok?"ok":"err");
 
 }
 
-wmRow("Signal intensity",data[148],"raw "+parseInt(data[148],16)+", signed "+wmSigned8(data[148]));
-wmRow("Signal to noise ratio",data[149],"raw "+parseInt(data[149],16)+", signed "+wmSigned8(data[149]));
+wmRow("Kekuatan sinyal",data[148],wmSigned8(data[148]).toString());
+wmRow("Kualitas sinyal",data[149],wmSigned8(data[149]).toString());
 
 if(data.length>150)
-wmRow("Extra data",data.slice(150).join(""),(data.length-150)+" extra bytes","info");
+wmRow("Data lebih",data.slice(150).join(""),"Ada "+(data.length-150)+" byte lebih","info");
 
 }
 
 function wmDecodeData(data,control){
 
 if(data.length<2){
-wmRow("Data field",data.join(""),data.length+" bytes; data terlalu pendek untuk membaca ID","err");
+wmRow("Isi data",data.join(""),"Data terlalu pendek","err");
 return;
 }
 
 let id=(data[0]+data[1]).toLowerCase();
 
 let ids={
-"901e":"Read all meter data",
-"905f":"NB-IoT GURTAM meter data",
-"a017":"Valve control",
-"a026":"GPRS heartbeat"
+"901e":"Baca semua data meter",
+"905f":"Laporan rutin meter",
+"a017":"Buka / tutup katup",
+"a026":"Sinyal hidup (heartbeat)"
 };
 
 let layouts={
 "901e":data.length===2?
-"2 bytes; request baca semua data meter":
-data.length+" bytes; DI(2) + forward flow unsigned(5) + reverse flow unsigned(5) + remaining amount signed(4) + instantaneous flow unsigned(4) + real-time(7) + status ST bit flags(4) + next purchase serial(1)",
-"905f":data.length+" bytes; DI(2) + unit bytes(3) + spare(1) + current data(22) + 24 hourly flow records(120) + signal(1) + SNR(1)",
-"a017":data.length+" bytes; DI(2) + valve command(1) + optional status ST(4)",
-"a026":data.length+" bytes; DI(2) + heartbeat time / GPRS data"
+"2 byte: permintaan baca data":
+data.length+" byte: pemakaian air, saldo, waktu, status",
+"905f":data.length+" byte: pemakaian air, status, data 24 jam, sinyal",
+"a017":data.length+" byte: perintah katup dan status",
+"a026":data.length+" byte: waktu sinyal hidup"
 };
 
-wmRow("Data field",data.join(""),layouts[id]||data.length+" bytes; raw vendor data, format belum ada di dokumen",ids[id]?"":"info");
+wmRow("Isi data",data.join(""),layouts[id]||data.length+" byte, format belum dikenal",ids[id]?"":"info");
 
-wmRow("Data identification",id,ids[id]||"Unknown / vendor-defined",ids[id]?"":"info");
+wmRow("Jenis data",id,ids[id]||"Belum dikenal",ids[id]?"":"info");
 
 if(id==="905f"){
 wmDecode905F(data);
@@ -1837,38 +1834,38 @@ return;
 
 if(id==="901e"){
 if(data.length===2){
-wmRow("Request","","Read all meter data");
+wmRow("Permintaan","","Baca semua data meter");
 return;
 }
 
 if(data.length<32){
-wmRow("Meter data","","Expected 32 data bytes, received "+data.length,"err");
+wmRow("Data meter","","Data kurang: harusnya 32 byte, cuma ada "+data.length,"err");
 return;
 }
 
-wmMeasurement("Current forward flow",data.slice(2,7));
-wmMeasurement("Reverse flow",data.slice(7,12));
+wmMeasurement("Total pemakaian air",data.slice(2,7));
+wmMeasurement("Air mengalir balik",data.slice(7,12));
 
 let remaining=wmLeNumber(data.slice(12,16),true);
-wmRow("Remaining amount",data.slice(12,16).join(""),wmScaled(remaining,2)+" (raw signed two's complement; currency follows device configuration)");
+wmRow("Sisa saldo",data.slice(12,16).join(""),wmScaled(remaining,2));
 
-wmMeasurement("Instantaneous flow",data.slice(16,20));
-wmRow("Real-time",data.slice(20,27).join(""),wmDateTime(data.slice(20,27)));
+wmMeasurement("Aliran air sekarang",data.slice(16,20));
+wmRow("Waktu di meter",data.slice(20,27).join(""),wmDateTime(data.slice(20,27)));
 wmStatus(data.slice(27,31));
-wmRow("Next purchase serial number",data[31],parseInt(data[31],16).toString());
+wmRow("No. pembelian berikutnya",data[31],parseInt(data[31],16).toString());
 return;
 }
 
 if(id==="a017"){
 if(data.length<3){
-wmRow("Valve command","","Valve type byte missing","err");
+wmRow("Perintah katup","","Perintahnya tidak ada","err");
 return;
 }
 
 let type=data[2].toLowerCase();
-let valve=type==="55"?"Open valve":type==="99"?"Close valve":"Unknown command";
+let valve=type==="55"?"Buka katup":type==="99"?"Tutup katup":"Perintah tidak dikenal";
 
-wmRow("Valve command",data[2],valve,type==="55"||type==="99"?"":"info");
+wmRow("Perintah katup",data[2],valve,type==="55"||type==="99"?"":"info");
 
 if(data.length>=7)wmStatus(data.slice(3,7));
 return;
@@ -1876,17 +1873,17 @@ return;
 
 if(id==="a026"){
 if(data.length>=9){
-wmRow("Heartbeat time",data.slice(2,9).join(""),wmDateTime(data.slice(2,9)));
+wmRow("Waktu sinyal hidup",data.slice(2,9).join(""),wmDateTime(data.slice(2,9)));
 }else if(data.length>=4){
-wmRow("GPRS code",data.slice(2,4).join(""),data.slice(2,4).join(""));
+wmRow("Kode modem",data.slice(2,4).join(""),data.slice(2,4).join(""));
 }else{
-wmRow("Heartbeat data","","Data heartbeat tidak lengkap","err");
+wmRow("Sinyal hidup","","Data kurang","err");
 }
 return;
 }
 
 if(control&0x40)
-wmRow("Communication status","","Slave reports abnormal data or frame format","err");
+wmRow("Status komunikasi","","Meter melaporkan data tidak normal","err");
 
 }
 
@@ -1903,7 +1900,7 @@ let raw=document.getElementById("wmHexInput").value
 .toLowerCase();
 
 if(raw.length===0||raw.length%2!==0){
-alert("Payload WM BLE bukan HEX yang valid");
+alert("Data bukan HEX yang valid");
 return;
 }
 
@@ -1913,7 +1910,7 @@ let sof=bytes.indexOf("68");
 wmClearTable();
 
 if(sof<0){
-wmRow("SOF","","Byte awal 0x68 tidak ditemukan","err");
+wmRow("Awal data","","Kode awal 0x68 tidak ditemukan","err");
 return;
 }
 
@@ -1922,24 +1919,24 @@ let core=bytes.slice(sof);
 
 if(preamble.length){
 let validPreamble=preamble.every(b=>b==="fe");
-wmRow("Wake-up preamble",preamble.join(""),preamble.length+" byte FE",validPreamble?"ok":"err");
+wmRow("Pembuka",preamble.join(""),validPreamble?"OK":"Harusnya FE",validPreamble?"ok":"err");
 }
 
-wmRow("SOF",core[0],core[0]==="68"?"Frame start":"Invalid SOF",core[0]==="68"?"ok":"err");
+wmRow("Awal data",core[0],core[0]==="68"?"OK":"Salah",core[0]==="68"?"ok":"err");
 
 if(core.length<14){
-wmRow("Frame","",core.length+" bytes; minimum 14 bytes","err");
+wmRow("Panjang data","","Terlalu pendek: "+core.length+" byte, minimal 14","err");
 return;
 }
 
 let meterTypes={
-"10":"Cold water meter","11":"Hot water meter","12":"Direct drinking water meter",
-"13":"Reclaimed water meter","15":"Identified water meter","20":"Heat meter (calorimeter)",
-"21":"Heat meter (cooling capacity)","30":"Gas meter","40":"Other meter"
+"10":"Meter air dingin","11":"Meter air panas","12":"Meter air minum",
+"13":"Meter air daur ulang","15":"Meter air khusus","20":"Meter pemanas",
+"21":"Meter pendingin","30":"Meter gas","40":"Meter lainnya"
 };
 let meterType=core[1];
 
-wmRow("Meter type",meterType,meterTypes[meterType]||"Unknown meter type","info");
+wmRow("Jenis meter",meterType,meterTypes[meterType]||"Tidak dikenal","info");
 
 let address=core.slice(2,8);
 let addressHex=address.join("");
@@ -1948,8 +1945,8 @@ let serialBytes=address.slice(0,5).filter(b=>b!=="aa").reverse();
 let serial=serialBytes.join("").toUpperCase();
 let validBcd=serialBytes.every(b=>/^[0-9]{2}$/.test(b));
 
-wmRow("Address A0-A5",addressHex,broadcast?"Broadcast address":
-"S/N "+(validBcd&&serial?serial:"invalid BCD")+", vendor 0x"+address[5].toUpperCase(),broadcast?"info":"");
+wmRow("Nomor seri",addressHex,broadcast?"Semua meter":
+(validBcd&&serial?serial:"Tidak valid"),broadcast?"info":"");
 
 let addressSum=address.reduce((sum,b)=>(sum+parseInt(b,16))&0xff,0);
 let addressCheck=parseInt(core[8],16);
@@ -1957,28 +1954,27 @@ let addressExpected=addressSum.toString(16).padStart(2,"0");
 let addressOk=addressCheck===addressSum;
 let broadcastConvention=broadcast&&core[8]==="aa";
 
-wmRow("Address check A6",core[8],"Calc 0x"+addressExpected.toUpperCase()+
-(addressOk?" = OK":broadcastConvention?"; 0xAA broadcast convention":" = ERROR"),
+wmRow("Cek nomor seri",core[8],addressOk?"OK":broadcastConvention?"OK (semua meter)":"GAGAL, harusnya 0x"+addressExpected.toUpperCase(),
 addressOk?"ok":broadcastConvention?"info":"err");
 
-wmRow("Version",core[9],parseInt(core[9],16).toString());
+wmRow("Versi",core[9],parseInt(core[9],16).toString());
 
 let control=parseInt(core[10],16);
 let functionCode=control&0x3f;
-let functions={0:"Reserved",1:"Read data",3:"Read address",4:"Write data",21:"Write address",22:"Write meter reading"};
-let direction=(control&0x80)?"Slave reply":"Master command";
-let communication=(control&0x40)?"abnormal":"normal";
+let functions={0:"Tidak dipakai",1:"Baca data",3:"Baca nomor seri",4:"Ubah data",21:"Ubah nomor seri",22:"Ubah angka meter"};
+let direction=(control&0x80)?"Balasan dari meter":"Perintah ke meter";
+let communication=(control&0x40)?"ada masalah":"normal";
 
-wmRow("Control code",core[10],direction+"; "+communication+"; "+
-(functions[functionCode]||"Vendor function 0x"+functionCode.toString(16).padStart(2,"0").toUpperCase()),
+wmRow("Jenis perintah",core[10],direction+", "+
+(functions[functionCode]||"perintah khusus")+(communication==="normal"?"":", "+communication),
 communication==="normal"?"":"err");
 
 let declared=parseInt(core[11],16);
 let expectedLength=14+declared;
 
-wmRow("Data length",core[11],declared+" bytes");
-wmRow("Frame length","",core.length+" bytes"+
-(core.length===expectedLength?" = OK":"; expected "+expectedLength),core.length===expectedLength?"ok":"err");
+wmRow("Panjang isi",core[11],declared+" byte");
+wmRow("Panjang total","",core.length+" byte"+
+(core.length===expectedLength?" (OK)":", harusnya "+expectedLength),core.length===expectedLength?"ok":"err");
 
 let dataEnd=Math.min(12+declared,core.length);
 let data=core.slice(12,dataEnd);
@@ -1994,17 +1990,17 @@ let checksumCalc=core.slice(0,checksumIndex)
 .toString(16).padStart(2,"0");
 let checksumOk=checksum===checksumCalc;
 
-wmRow("Checksum CS",checksum,"Calc 0x"+checksumCalc.toUpperCase()+" = "+(checksumOk?"OK":"ERROR"),checksumOk?"ok":"err");
+wmRow("Cek data",checksum,checksumOk?"OK":"GAGAL, harusnya 0x"+checksumCalc.toUpperCase(),checksumOk?"ok":"err");
 }else{
-wmRow("Checksum CS","","Missing checksum","err");
+wmRow("Cek data","","Tidak ada","err");
 }
 
 let end=core[checksumIndex+1];
 
-wmRow("End character",end||"",end==="16"?"Frame end":"Expected 0x16",end==="16"?"ok":"err");
+wmRow("Akhir data",end||"",end==="16"?"OK":"Harusnya 0x16",end==="16"?"ok":"err");
 
 if(core.length>expectedLength)
-wmRow("Trailing bytes",core.slice(expectedLength).join(""),(core.length-expectedLength)+" extra bytes","info");
+wmRow("Data lebih",core.slice(expectedLength).join(""),"Ada "+(core.length-expectedLength)+" byte lebih","info");
 
 }
 
